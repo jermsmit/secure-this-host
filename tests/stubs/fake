@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+# fake - one script that pretends to be ufw, tailscale, sshd, systemctl and
+# friends for the integration tests. Called through symlinks; behaviour
+# depends on the name. State lives in $STUB_STATE, files under $STH_ROOT.
+# Every call is appended to $STUB_STATE/calls.log.
+set -uo pipefail
+name=$(basename "$0")
+S=${STUB_STATE:?STUB_STATE not set}
+R=${STH_ROOT:-}
+mkdir -p "$S"
+printf '%s %s\n' "$name" "$*" >>"$S/calls.log"
+
+has() { [[ -e $S/$1 ]]; }
+
+case $name in
+# ---------------------------------------------------------------- packages
+dpkg-query)
+  pkg=${*: -1}
+  if has "pkg_$pkg"; then printf 'install ok installed'; exit 0; fi
+  exit 1 ;;
+apt-get)
+  [[ $1 == update || $* == *" update"* ]] && exit 0
+  for a in "$@"; do
+    case $a in -*|install) continue ;; esac
+    : >"$S/pkg_$a"
+    case $a in   # "install" the package's commands
+      ufw) ln -sf "$STUBS/fake" "$S/bin/ufw" ;;
+      tailscale) ln -sf "$STUBS/fake" "$S/bin/tailscale" ;;
+      auditd) ln -sf "$STUBS/fake" "$S/bin/augenrules" ;;
+      fail2ban) ln -sf "$STUBS/fake" "$S/bin/fail2ban-client" ;;
+    esac
+  done
+  exit 0 ;;
+apt-config)
+  # apt-config shell VAR KEY -> VAR='value' (last value in apt.conf.d wins)
+  key=$3 val=""
+  for f in "$R"/etc/apt/apt.conf.d/*; do
+    [[ -f $f ]] || continue
+    v=$(sed -n "s/^${key//./\\.} \"\(.*\)\";/\1/p" "$f" | tail -n 1)
+    [[ -n $v ]] && val=$v
+  done
+  [[ -n $val ]] && printf "%s='%s'\n" "$2" "$val"
+  exit 0 ;;
+curl)
+  out=""; while (( $# )); do [[ $1 == -o ]] && out=$2; shift; done
+  [[ -n $out && $out != /dev/null ]] && printf 'FAKEKEYRING' >"$out"
+  exit 0 ;;
+# ---------------------------------------------------------------- ufw
+ufw)
+  # Like real ufw, rules and the default policy live in files under /etc, so
+  # restoring those files (rollback) restores the firewall.
+  if [[ -d $R/etc/ufw ]]; then rules=$R/etc/ufw/user.rules.fake; else rules=$S/ufw_rules; fi
+  defaults=$R/etc/default/ufw
+  # Real ufw doesn't create rule files on read-only commands; neither do we.
+  case ${1:-}${2:-} in status*|show*|--forcestatus*) [[ -f $rules ]] || rules=/dev/null ;; *) touch "$rules" ;; esac
+  args=("$@"); [[ ${args[0]:-} == --force ]] && args=("${args[@]:1}")
+  case ${args[0]:-} in
+    status)
+      if has ufw_active; then echo "Status: active"; else echo "Status: inactive"; fi
+      if [[ ${args[1]:-} == verbose ]] && has ufw_active; then
+        pol=$(sed -n 's/^DEFAULT_INPUT_POLICY="\(.*\)"/\1/p' "$defaults" 2>/dev/null)
+        [[ $pol == DROP ]] && pol=deny || pol=allow
+        echo "Default: $pol (incoming), allow (outgoing), disabled (routed)"
+      fi ;;
+    show)
+      echo "Added user rules (see 'ufw status' for running firewall):"
+      if [[ -s $rules && $rules != /dev/null ]]; then sed 's/^/ufw /' "$rules"; else echo "(None)"; fi ;;
+    default)
+      if [[ ${args[2]} == incoming ]]; then
+        pol=ACCEPT; [[ ${args[1]} == deny ]] && pol=DROP
+        mkdir -p "${defaults%/*}"; touch "$defaults"
+        grep -v '^DEFAULT_INPUT_POLICY=' "$defaults" >"$defaults.tmp"; echo "DEFAULT_INPUT_POLICY=\"$pol\"" >>"$defaults.tmp"; mv "$defaults.tmp" "$defaults"
+      fi ;;
+    allow|limit|deny)
+      spec="${args[*]}"; spec=${spec% comment *}
+      cmt=""; for ((i = 0; i < ${#args[@]}; i++)); do [[ ${args[$i]} == comment ]] && cmt=${args[$((i + 1))]}; done
+      if grep -q "^$spec\( comment\|$\)" "$rules"; then echo "Skipping adding existing rule"; exit 0; fi
+      if [[ -n $cmt ]]; then printf "%s comment '%s'\n" "$spec" "$cmt" >>"$rules"; else printf '%s\n' "$spec" >>"$rules"; fi
+      echo "Rule added" ;;
+    delete)
+      spec="${args[*]:1}"
+      grep -v "^$spec\( comment '.*'\)\?$" "$rules" >"$rules.tmp"; mv "$rules.tmp" "$rules"
+      echo "Rule deleted" ;;
+    enable) : >"$S/ufw_active"; echo "Firewall is active" ;;
+    disable) rm -f "$S/ufw_active"; echo "Firewall stopped" ;;
+    reload|logging) : ;;
+    *) echo "fake ufw: unhandled ${args[*]}" >&2; exit 2 ;;
+  esac
+  exit 0 ;;
+# ---------------------------------------------------------------- tailscale
+tailscale)
+  case $1 in
+    status)
+      if has ts_running; then
+        tags=$(cat "$S/ts_tags" 2>/dev/null)
+        printf '{"BackendState": "Running", "Self": {"Tags": [%s]}}\n' "${tags:+\"$tags\"}"
+      else echo '{"BackendState": "NeedsLogin"}'; exit 1; fi ;;
+    ip) has ts_running && echo 100.101.102.103 ;;
+    up)
+      has ts_up_fail && { echo "backend error: requested tags [tag:server] are invalid or not permitted" >&2; exit 1; }
+      for a in "$@"; do
+        [[ $a == --auth-key=file:* ]] && cp "${a#--auth-key=file:}" "$S/ts_authkey_seen"
+        [[ $a == --advertise-tags=* ]] && printf '%s' "${a#*=}" >"$S/ts_tags"
+      done
+      : >"$S/ts_running" ;;
+    set)
+      for a in "${@:2}"; do
+        case $a in
+          --netfilter-mode=*) printf '%s' "${a#*=}" >"$S/ts_netfilter" ;;
+          --ssh|--ssh=true) : >"$S/ts_ssh" ;;
+          --ssh=false) rm -f "$S/ts_ssh" ;;
+        esac
+      done ;;
+    debug)
+      mode=$(cat "$S/ts_netfilter" 2>/dev/null || echo on)
+      case $mode in off) n=0 ;; nodivert) n=1 ;; *) n=2 ;; esac
+      ssh=false; has ts_ssh && ssh=true
+      printf '{\n  "NetfilterMode": %d,\n  "RunSSH": %s\n}\n' "$n" "$ssh" ;;
+  esac
+  exit 0 ;;
+iptables)
+  echo "-P INPUT ACCEPT"
+  if has ts_running && [[ $(cat "$S/ts_netfilter" 2>/dev/null || echo on) == on ]]; then echo "-A INPUT -j ts-input"; fi
+  exit 0 ;;
+# ---------------------------------------------------------------- ssh
+sshd)
+  if [[ ${1:-} == -t ]]; then has sshd_fail && { echo "/etc/ssh/sshd_config.d/00-secure-this-host.conf line 9: Bad configuration option" >&2; exit 255; }; exit 0; fi
+  if [[ ${1:-} == -T ]]; then
+    # First value wins, Include expanded in sorted order, like real sshd.
+    declare -A seen=()
+    emit() {
+      local line k v
+      while IFS= read -r line; do
+        [[ $line =~ ^[[:space:]]*(#|$) ]] && continue
+        read -r k v <<<"$line"; k=${k,,}
+        if [[ $k == include ]]; then
+          local f; for f in $R$v; do [[ -f $f ]] && emit <"$f"; done; continue
+        fi
+        if [[ $k == allowusers ]]; then
+          [[ -n ${seen[$k]:-} ]] && continue
+          seen[$k]=1; local w; for w in $v; do echo "allowusers $w"; done; continue
+        fi
+        [[ -n ${seen[$k]:-} ]] && continue
+        seen[$k]=1; echo "$k ${v,,}"
+      done
+    }
+    emit <"$R/etc/ssh/sshd_config"
+    for d in "permitrootlogin prohibit-password" "passwordauthentication yes" "pubkeyauthentication yes" "kbdinteractiveauthentication no" "authenticationmethods any"; do
+      [[ -n ${seen[${d%% *}]:-} ]] || echo "$d"
+    done
+    exit 0
+  fi
+  exit 0 ;;
+# ---------------------------------------------------------------- systemd
+systemctl)
+  args=(); for a in "$@"; do [[ $a == --* ]] || args+=("$a"); done
+  verb=${args[0]:-}; units=("${args[@]:1}")
+  for u in "${units[@]}"; do
+    u=${u%.service}
+    case $verb in
+      is-enabled) has "enabled_$u" || exit 1 ;;
+      is-active) has "active_$u" || exit 1 ;;
+      enable) : >"$S/enabled_$u"; [[ $* == *--now* ]] && : >"$S/active_$u" ;;
+      disable) rm -f "$S/enabled_$u"; [[ $* == *--now* ]] && rm -f "$S/active_$u" ;;
+      restart) : >"$S/active_$u" ;;
+      try-restart|try-reload-or-restart) : ;;
+      stop) [[ $u == *.timer ]] && rm -f "$S/timer_${u%.timer}" ;;
+      reset-failed) : ;;
+    esac
+  done
+  exit 0 ;;
+systemd-run)
+  unit="" cmd=()
+  while (( $# )); do
+    case $1 in
+      --unit=*) unit=${1#*=} ;;
+      --*) : ;;
+      *) cmd=("$@"); break ;;
+    esac
+    shift
+  done
+  printf '%s\n' "${cmd[*]}" >"$S/timer_$unit"
+  exit 0 ;;
+# ---------------------------------------------------------------- accounts
+getent)
+  [[ $1 == passwd ]] || exit 2
+  grep "^$2:" "$S/passwd" 2>/dev/null || exit 2 ;;
+id)
+  case $1 in
+    -nG) cat "$S/groups_$2" 2>/dev/null || echo "$2" ;;
+    -gn) echo "$2" ;;
+    *) /usr/bin/id "$@" ;;
+  esac ;;
+useradd)
+  user=${*: -1} groups=""
+  while (( $# > 1 )); do [[ $1 == --groups ]] && groups=$2; shift; done
+  echo "$user:x:1001:1001::/home/$user:/bin/bash" >>"$S/passwd"
+  mkdir -p "$R/home/$user"
+  echo "$user $groups" >"$S/groups_$user" ;;
+usermod) user=${*: -1}; echo "$(cat "$S/groups_$user" 2>/dev/null || echo "$user") sudo" >"$S/groups_$user" ;;
+passwd|chown|visudo|augenrules|wall|fail2ban-client) exit 0 ;;
+# ---------------------------------------------------------------- kernel / network
+sysctl)
+  case ${1:-} in
+    -n) sed -n "s/^$2 = //p" "$S/sysctl" 2>/dev/null | tail -n 1 ;;
+    *)
+      for a in "$@"; do [[ -f $R$a ]] && grep -E '^[a-z]' "$R$a" >>"$S/sysctl"; done ;;
+  esac
+  exit 0 ;;
+ip)
+  echo "2: eth0    inet ${FAKE_LAN_ADDR:-192.168.1.50/24} brd 192.168.1.255 scope global eth0\\       valid_lft forever preferred_lft forever"
+  has docker && echo "3: docker0    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0\\       valid_lft forever"
+  exit 0 ;;
+ss)
+  echo "tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:*"
+  echo "tcp LISTEN 0 4096 127.0.0.53%lo:53 0.0.0.0:*"
+  echo "udp UNCONN 0 0 0.0.0.0:41641 0.0.0.0:*"
+  [[ -n ${FAKE_EXTRA_LISTENER:-} ]] && echo "tcp LISTEN 0 4096 0.0.0.0:$FAKE_EXTRA_LISTENER 0.0.0.0:*"
+  exit 0 ;;
+*) echo "fake: no stub for $name" >&2; exit 127 ;;
+esac

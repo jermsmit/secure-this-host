@@ -1,0 +1,52 @@
+#cloud-config
+# Harden a new cloud server on first boot with secure-this-host.
+#
+# Before you use this:
+#  1. Create a Tailscale auth key: admin console > Settings > Keys.
+#     Make it one-off, pre-approved and tagged tag:server, with a short expiry.
+#     Cloud user-data can be read back from the provider's metadata service, so
+#     treat the key as exposed once it has been used.
+#  2. Add tag:server to tagOwners in your tailnet policy (run `sth acl` to print one).
+#  3. Replace the key below and the public key, then paste this file into your
+#     provider's "user data" / "cloud-init" box.
+#
+# After boot, log in with:  ssh ubuntu@<server's Tailscale name or 100.x address>
+# and check the result:     sudo sth verify
+
+ssh_authorized_keys:
+  - ssh-ed25519 AAAA...replace-with-your-public-key... you@laptop
+
+package_update: true
+packages: [git]
+
+write_files:
+  - path: /root/tailscale-authkey
+    permissions: "0600"
+    content: |
+      tskey-auth-REPLACE-ME
+  - path: /root/sth-answers.conf
+    permissions: "0600"
+    content: |
+      SERVER_TYPE=cloud
+      CREATE_ADMIN=no
+      ADMIN_USER=ubuntu
+      SSH_ALLOW_USERS=ubuntu
+      SSH_METHOD=openssh
+      TS_TAG=tag:server
+      TS_AUTHKEY_FILE=/root/tailscale-authkey
+      PUBLIC_PORTS=none
+      AUTO_UPDATES=yes
+      AUTO_REBOOT=yes
+      AUTO_REBOOT_TIME=04:00
+      EXTRA_HARDENING=yes
+      DISABLE_SERVICES=yes
+      # Nobody is logged in to confirm during first boot. With "none" the
+      # rollback timer is cancelled straight away, so check the server with
+      # `sudo sth verify` once you're in. Your provider's console is the way
+      # back if something is wrong.
+      CONFIRM_MODE=none
+
+runcmd:
+  - git clone --depth 1 https://github.com/jermsmit/secure-this-host /opt/secure-this-host
+  - bash /opt/secure-this-host/secure-this-host.sh --config /root/sth-answers.conf --yes
+  - shred -u /root/tailscale-authkey
