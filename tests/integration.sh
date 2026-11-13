@@ -207,16 +207,20 @@ check "timer cancelled" test ! -e "$STUB_STATE/timer_sth-rollback"
 rm -rf "$T"
 
 # ---------------------------------------------------------------------------
-new_env "dry run changes nothing"
+new_env "dry run changes nothing (and catches an admin without a console password)"
 export SSH_CONNECTION="192.168.1.20 51000 192.168.1.50 22" SUDO_USER=alice
+echo L >"$STUB_STATE/pwstatus_alice"
 ( cd "$STH_ROOT" && find . -type f -exec md5sum {} + | sort ) >"$T/before"
-answers "" "" "" "" "" "" "" "" "" 443 "" "" "" ""
+# type, create?, user, set console password?, add key?, allowed, method, tag, auth, LAN | ports | updates, reboot, extra
+answers "" "" "" "" "" "" "" "" "" "" 443 "" "" ""
 sth --dry-run <"$T/in.txt" >"$T/out.log" 2>&1; RC=$?
 ( cd "$STH_ROOT" && find . -type f -exec md5sum {} + | sort ) >"$T/after"
 check "dry run exit 0 (got $RC)" test "$RC" -eq 0
 check "dry run: no file changed" diff "$T/before" "$T/after"
 check "dry run: shows planned ufw command" has_line "$T/out.log" "[dry-run] ufw allow in on tailscale0"
 check "dry run: no ufw calls that change state" no_line "$STUB_STATE/calls.log" "ufw --force enable"
+check "warns: admin has no console password" has_line "$T/out.log" "can't log in at a console"
+check "offers to set it (dry run shows passwd)" has_line "$T/out.log" "[dry-run] passwd alice"
 rm -rf "$T"
 
 # ---------------------------------------------------------------------------

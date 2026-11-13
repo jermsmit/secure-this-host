@@ -198,7 +198,10 @@ useradd)
   mkdir -p "$R/home/$user"
   echo "$user $groups" >"$S/groups_$user" ;;
 usermod) user=${*: -1}; echo "$(cat "$S/groups_$user" 2>/dev/null || echo "$user") sudo" >"$S/groups_$user" ;;
-passwd|chown|visudo|augenrules|wall|fail2ban-client) exit 0 ;;
+passwd)
+  if [[ ${1:-} == -S ]]; then echo "$2 $(cat "$S/pwstatus_$2" 2>/dev/null || echo P) 01/01/2026 0 99999 7 -1"; fi
+  exit 0 ;;
+chown|visudo|augenrules|wall|fail2ban-client) exit 0 ;;
 # ---------------------------------------------------------------- kernel / network
 sysctl)
   case ${1:-} in

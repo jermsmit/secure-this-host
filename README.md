@@ -1,8 +1,14 @@
-# secure-this-host
+# 🛡️ secure-this-host
 
 **Zero-trust hardening for Ubuntu 24.04 and 26.04 LTS, in one interactive script.**
 
-Created by [jermsmit](https://github.com/jermsmit) · MIT License · [github.com/jermsmit/secure-this-host](https://github.com/jermsmit/secure-this-host)
+[![CI](https://github.com/jermsmit/secure-this-host/actions/workflows/ci.yml/badge.svg)](https://github.com/jermsmit/secure-this-host/actions/workflows/ci.yml)
+![Ubuntu 24.04 | 26.04 LTS](https://img.shields.io/badge/Ubuntu-24.04%20%7C%2026.04%20LTS-E95420?logo=ubuntu&logoColor=white)
+![Tailscale](https://img.shields.io/badge/Tailscale-zero--trust-242424?logo=tailscale&logoColor=white)
+![Bash](https://img.shields.io/badge/Bash-script-4EAA25?logo=gnubash&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Created by [jermsmit](https://github.com/jermsmit)
 
 Run it on a clean or existing Ubuntu server, at home, in an office or in the cloud. Admin SSH ends up reachable only over [Tailscale](https://tailscale.com) (plus an optional LAN range), every inbound port is closed unless you list it, and `sth verify` checks the result with a PASS/FAIL report. If the new setup would lock you out, every change is undone automatically.
 
@@ -11,30 +17,44 @@ sudo ./secure-this-host.sh            # interactive setup; installs the `sth` co
 sudo sth verify                       # PASS/FAIL report, any time
 ```
 
-> **What this is and isn't.** It gives a server a hardened, zero-trust *baseline*. It doesn't make anything "production ready" by itself: backups, monitoring, application hardening and secrets management are still your job (see [After hardening](#after-hardening)).
+> [!IMPORTANT]
+> **What this is and isn't.** It gives a server a hardened, zero-trust *baseline*. It doesn't make anything "production ready" by itself: backups, monitoring, application hardening and secrets management are still your job (see [After hardening](#-after-hardening)).
 
-## Zero-trust principles
+> [!TIP]
+> **New to SSH keys or Tailscale?** Follow the step-by-step **[Getting started guide](docs/GETTING-STARTED.md)**. It covers making a key on Windows, macOS and Linux, setting a console password, and your first run.
+
+## 🔐 Zero-trust principles
 
 1. **Identity over location.** Admin access requires a Tailscale identity *and* an SSH key (or Tailscale SSH), never just "can reach port 22".
 2. **Deny by default.** The firewall drops all inbound traffic, including from other tailnet devices, except SSH over Tailscale and the ports you open on purpose.
 3. **Verify, don't assume.** Checks read the *effective* state (`sshd -T`, `ufw status`, `sysctl`), not just the files the script wrote.
 
-## Quick start
+## ✅ Before you start
 
-On the server, as a user who can `sudo`:
+- [ ] **Ubuntu 24.04 or 26.04 LTS** server, and an account that can use `sudo`
+- [ ] **An SSH key on your own computer:** `ssh-keygen -t ed25519 -C "you@example.com"` ([how-to](docs/GETTING-STARTED.md#1-make-an-ssh-key-on-your-computer))
+- [ ] **Key login tested:** `ssh you@server` works without the server password
+- [ ] **A Tailscale account**, with **Tailscale installed and signed in on your own computer**. The script installs it on the server; your computer must be on the same tailnet to log in afterwards
+- [ ] **Console access with a password:** the provider's web console, or a keyboard and screen. SSH keys don't work at a console, so the account needs a password (`sudo passwd $USER`)
+- [ ] **A snapshot**, if your provider or hypervisor supports it
+
+> [!WARNING]
+> Skip the Tailscale-on-your-computer step and you won't be able to log in to confirm. The run then rolls itself back after 5 minutes: safe, but not what you want.
+
+## 🚀 Quick start
+
+On the server:
 
 ```bash
 git clone https://github.com/jermsmit/secure-this-host
 cd secure-this-host
-sudo ./secure-this-host.sh --dry-run     # optional: see every change first
-sudo ./secure-this-host.sh
+sudo ./secure-this-host.sh --dry-run     # see every change first; nothing is modified
+sudo ./secure-this-host.sh               # the real run
 ```
 
-You need: Ubuntu 24.04 or 26.04 LTS, `openssh-server`, internet access, a Tailscale account, and an SSH public key on your own computer (`cat ~/.ssh/id_ed25519.pub`; create one with `ssh-keygen -t ed25519`).
+At the end, open a **second** terminal, log in over Tailscale, and run the `sudo sth confirm CODE` command the installer shows. Then check the result any time with `sudo sth verify`.
 
-Have a backup way in before you start: the provider's web console for a cloud server, or a keyboard and screen for a home or office server.
-
-## What the setup asks
+## 💬 What the setup asks
 
 Every question has a safe default, so pressing Enter all the way through gives the strictest result. Nothing changes until you approve the summary.
 
@@ -47,7 +67,7 @@ Every question has a safe default, so pressing Enter all the way through gives t
 7. **Security updates.** Daily, on by default. Automatic reboots only if you say yes, at a time you choose.
 8. **Extra hardening.** Kernel network settings and audit logging; fail2ban when SSH is reachable from the LAN; disable unneeded services; Docker firewall handling if Docker is installed.
 
-## What it changes
+## 🔧 What it changes
 
 | Area | Change | Where |
 |---|---|---|
@@ -62,18 +82,37 @@ Every question has a safe default, so pressing Enter all the way through gives t
 
 Every file is backed up before it's touched, to `/var/backups/secure-this-host/<timestamp>/`.
 
-## The safety net
+## 🛟 The safety net
 
-The script usually runs over SSH while it changes SSH and the firewall. These safeguards stop it from locking you out:
+The script usually runs over SSH while it changes SSH and the firewall. It's built so a mistake can't lock you out:
 
-1. **Pre-flight checks.** It refuses unsupported systems and other firewall managers (nftables, iptables-persistent, firewalld). It requires a valid SSH key for the admin account and detects how you're connected.
+```mermaid
+flowchart LR
+    A[Questions and review] --> B[Join Tailscale]
+    B --> C[Arm rollback timer]
+    C --> D[Harden SSH, firewall and more]
+    D --> E{Confirmed from a<br/>new login?}
+    E -- "yes: sudo sth confirm" --> F[Changes kept]
+    E -- "no reply in 5 minutes" --> G[Everything rolled back]
+    D -. "a step fails" .-> H[Rolled back immediately]
+    classDef step fill:#0969da,stroke:#0550ae,color:#ffffff
+    classDef good fill:#1a7f37,stroke:#116329,color:#ffffff
+    classDef bad fill:#cf222e,stroke:#a40e26,color:#ffffff
+    classDef ask fill:#9a6700,stroke:#7d4e00,color:#ffffff
+    class A,B,C,D step
+    class E ask
+    class F good
+    class G,H bad
+```
+
+1. **Pre-flight checks.** It refuses unsupported systems and other firewall managers (nftables, iptables-persistent, firewalld). It requires a valid SSH key for the admin account, warns when that account has no console password, and detects how you're connected.
 2. **Tailscale first.** The server joins your tailnet before anything is restricted.
 3. **Rollback timer.** A `systemd-run` timer (5 minutes by default; `--rollback-window 2-30`) is armed before SSH or the firewall change.
 4. **Prove it.** You open a **new** terminal, log in over Tailscale and run `sudo sth confirm CODE`. Confirming from the installer's own session is refused, because it proves nothing.
 5. **No confirmation → automatic rollback.** Files, ufw state, Tailscale settings and services go back to how they were.
 6. **Failure → immediate rollback.** If any step fails mid-run (for example `sshd -t` rejects the config), everything is undone at once.
 
-## Commands
+## ⌨️ Commands
 
 | Command | What it does |
 |---|---|
@@ -87,13 +126,14 @@ The script usually runs over SSH while it changes SSH and the firewall. These sa
 
 Install options: `--dry-run`, `--config FILE`, `--yes`, `--rollback-window MIN`, `--verbose`.
 
-## Tailscale access policy
+## 🌐 Tailscale access policy
 
 Before joining, the script prints a policy snippet to paste into the Tailscale admin console (**Access controls**). It defines `tag:server` and lets only tailnet admins reach SSH on it. In Tailscale SSH mode it adds an `ssh` rule with `check`, which makes admins sign in again every 12 hours. Print it again any time with `sth acl`.
 
-For real zero trust, also remove the default allow-all grant (`{"src": ["*"], "dst": ["*"], "ip": ["*"]}`) from your policy. Otherwise every device in your tailnet can reach this one.
+> [!WARNING]
+> For real zero trust, also remove the default allow-all grant (`{"src": ["*"], "dst": ["*"], "ip": ["*"]}`) from your policy. Otherwise every device in your tailnet can reach this one.
 
-## Unattended runs and cloud-init
+## 🤖 Unattended runs and cloud-init
 
 Save your answers, or start from [`examples/answers.example.conf`](examples/answers.example.conf):
 
@@ -103,11 +143,14 @@ sudo sth --config answers.conf --yes
 
 Config files are parsed as plain `KEY=VALUE` lines, never executed, and unknown keys are refused. [`examples/cloud-init.yaml`](examples/cloud-init.yaml) hardens a new cloud server on first boot with a one-off, pre-approved Tailscale auth key.
 
-## Docker
+## 🐳 Docker
 
-Docker publishes container ports by writing its own iptables rules, which skip ufw entirely. The script warns when Docker is installed. With **Docker firewall handling** on, published ports only accept new connections on your listed public ports or over Tailscale. Containers that rely on other published ports stop being reachable from outside, so test before turning it on.
+Docker publishes container ports by writing its own iptables rules, which skip ufw entirely. The script warns when Docker is installed. With **Docker firewall handling** on, published ports only accept new connections on your listed public ports or over Tailscale.
 
-## After hardening
+> [!CAUTION]
+> With Docker firewall handling on, containers that rely on other published ports stop being reachable from outside. Test before turning it on.
+
+## 📋 After hardening
 
 - Keep your backup access (provider console, physical console) working.
 - Set up backups and monitoring; this script does neither.
@@ -115,14 +158,14 @@ Docker publishes container ports by writing its own iptables rules, which skip u
 - Run `sudo sth verify` after changes and after release upgrades.
 - After upgrading Ubuntu (for example 24.04 → 26.04), re-run `sudo sth` so the Tailscale repository points at the new release.
 
-## Known limits
+## ⚠️ Known limits
 
 - **Reboot during the rollback window.** The rollback timer is in memory. If the server reboots before you confirm, the changes stay and there's no timer. Use the console and `sudo sth rollback` if needed.
 - **Kernel settings after rollback.** Removing the sysctl file takes effect at the next boot.
 - **Already-joined servers** keep their Tailscale login. Tag them yourself with `sudo tailscale up --advertise-tags=tag:server` so the policy applies.
 - **Settings are CIS-inspired, not CIS-certified.** For certified compliance use Ubuntu Security Guide (Ubuntu Pro).
 
-## Testing
+## 🧪 Testing
 
 ```bash
 bash tests/unit.sh          # validators, config parser, backup/restore
@@ -136,9 +179,12 @@ The integration tests run the real script inside a throwaway directory, with fak
 - the rollback timer firing, and a failure mid-run
 - dry runs, unattended cloud runs on 26.04, Tailscale SSH, uninstall, and verify catching problems
 
-CI runs ShellCheck plus both suites on every push. The fakes can't prove behaviour on a real kernel, so test on a VM before trusting it with a server you care about.
+CI runs ShellCheck plus both suites on every push.
 
-## Lessons behind the design
+> [!NOTE]
+> The fakes can't prove behaviour on a real kernel, so test on a VM before trusting it with a server you care about.
+
+## 💡 Lessons behind the design
 
 - **sshd keeps the first value it reads.** Ubuntu includes `sshd_config.d/*.conf` before everything else, and cloud images often ship `50-cloud-init.conf` with `PasswordAuthentication yes`. Naming the drop-in `00-…` makes it win, and verify proves it with `sshd -T`.
 - **Firewall rules beat `ListenAddress`.** Binding SSH to the Tailscale IP fails when Tailscale starts after SSH at boot, and binding to a LAN IP breaks when DHCP changes it. ufw on the `tailscale0` interface has neither problem.
@@ -146,7 +192,7 @@ CI runs ShellCheck plus both suites on every push. The fakes can't prove behavio
 - **`sshd -t` needs `/run/sshd`.** On Ubuntu 24.04+ SSH is socket-activated, so that directory may not exist yet.
 - **Turning on Tailscale SSH freezes OpenSSH sessions on the Tailscale address.** It's done last, after the confirmation code is shown.
 
-## Project layout
+## 📁 Project layout
 
 ```
 secure-this-host/
@@ -163,10 +209,10 @@ secure-this-host/
 │   ├── rollback.sh          # timer, confirm, restore
 │   └── verify.sh            # PASS/FAIL checks
 ├── examples/                # answers file and cloud-init
-├── docs/                    # design and threat model
+├── docs/                    # getting started guide, design, threat model
 └── tests/                   # unit + integration tests and fake system commands
 ```
 
-## License
+## 📄 License
 
 MIT, Copyright (c) 2026 [jermsmit](https://github.com/jermsmit). You may use, change and share this code, but you must keep the copyright notice. See [LICENSE](LICENSE).

@@ -6,6 +6,8 @@
 user_exists() { getent passwd "$1" >/dev/null 2>&1; }
 user_home() { getent passwd "$1" | cut -d: -f6; }
 user_in_group() { id -nG "$1" 2>/dev/null | tr ' ' '\n' | grep -qx "$2"; }
+# password_status USER - P (usable), L (locked), NP (none), or empty if unknown.
+password_status() { passwd -S "$1" 2>/dev/null | awk '{print $2}'; }
 
 # count_keys FILE - number of valid public key lines in an authorized_keys file.
 count_keys() {
@@ -37,6 +39,19 @@ users_questions() {
       ask_yn ADMIN_SUDO_NOPASSWD "Let $ADMIN_USER use sudo without a password? (No = you set a password next)" no
       if [[ $ADMIN_SUDO_NOPASSWD == no && $ASSUME_YES == 1 ]]; then
         die "Unattended runs can't set a password. Use an existing account, or set ADMIN_SUDO_NOPASSWD=yes."
+      fi
+    fi
+  fi
+
+  # A console (provider web console, keyboard and screen) needs a password:
+  # SSH keys only work over SSH. Without one, the backup way in is useless.
+  if user_exists "$ADMIN_USER"; then
+    local pw; pw=$(password_status "$ADMIN_USER")
+    if [[ $pw == L || $pw == NP ]]; then
+      warn "$ADMIN_USER has no password, so it can't log in at a console (SSH keys only work over SSH)."
+      warn "The console is your way back in if SSH and Tailscale both fail."
+      if [[ $ASSUME_YES == 0 ]]; then
+        ask_yn SET_CONSOLE_PW "Set a password for $ADMIN_USER when applying? (recommended)" yes
       fi
     fi
   fi
@@ -105,6 +120,17 @@ users_apply() {
       ok "Added $user to the sudo group"
     else
       ok "$user exists and can use sudo"
+    fi
+    if [[ ${SET_CONSOLE_PW:-no} == yes ]]; then
+      if [[ $DRY_RUN == 1 ]]; then
+        run passwd "$user"
+      else
+        info "Set a console password for $user (used at a console and for sudo; SSH stays key-only)."
+        local tries=0
+        until passwd "$user"; do
+          tries=$((tries + 1)); (( tries < 3 )) || { warn "Password not set; console login won't work for $user."; break; }
+        done
+      fi
     fi
   fi
 

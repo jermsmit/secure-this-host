@@ -13,4 +13,6 @@ First release as an interactive hardening script, by [jermsmit](https://github.c
 - Safety net: backups, rollback timer, `sth confirm` from a new login, immediate rollback on failure.
 - Commands: `verify` (text and JSON), `confirm`, `rollback`, `uninstall`, `acl`, `version`.
 - Unattended runs with `--config --yes`, and a cloud-init example.
+- Warns when the admin account has no console password, and offers to set one.
+- Step-by-step beginner guide: `docs/GETTING-STARTED.md`.
 - Unit and integration test suites with fake system commands; CI with ShellCheck.
