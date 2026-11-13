@@ -3,11 +3,13 @@
 # Run: bash tests/unit.sh
 set -uo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-NO_COLOR=1 STH_TEST=1
+export NO_COLOR=1 STH_TEST=1
 # shellcheck source=../lib/common.sh
 source "$HERE/../lib/common.sh"
 
 PASS=0 FAIL=0
+# In GitHub Actions, failures also show as annotations on the run page.
+gh_err() { if [[ ${GITHUB_ACTIONS:-} == true ]]; then printf '::error title=unit test::%s\n' "$*"; fi; }
 yes_() { if "$@"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL (expected valid): $*"; fi; }
 no_()  { if "$@"; then FAIL=$((FAIL + 1)); echo "FAIL (expected invalid): $*"; else PASS=$((PASS + 1)); fi; }
 eq_()  { if [[ $1 == "$2" ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: '$1' != '$2' ($3)"; fi; }
@@ -102,4 +104,5 @@ eq_ "$(latest_backup | cut -c1-30)" "/var/backups/secure-this-host/" "latest_bac
 unset STH_ROOT
 
 echo "unit tests: $PASS passed, $FAIL failed"
+(( FAIL == 0 )) || gh_err "$FAIL unit test(s) failed; see the step log"
 (( FAIL == 0 ))

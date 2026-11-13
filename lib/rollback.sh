@@ -1,4 +1,6 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034,SC2154
+# (Variables are shared between the lib files through secure-this-host.sh,
+# so checked one file at a time ShellCheck sees them as unset or unused.)
 # rollback.sh - the safety net. Before SSH or the firewall change, a systemd
 # timer is armed that restores the backup set. Confirming from a NEW login
 # (sudo sth confirm CODE) cancels it; that login is the proof you are not

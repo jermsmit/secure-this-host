@@ -1,0 +1,15 @@
+# Never commit private keys or secrets
+id_*
+!id_*.pub
+*.pem
+*.key
+*authkey*
+.env
+
+# Answers files can hold account names and network layout; keep real ones out
+*.conf
+!examples/*.conf
+
+# Editors and OS clutter
+*.swp
+.DS_Store

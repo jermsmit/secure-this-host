@@ -1,4 +1,6 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034,SC2154
+# (Variables are shared between the lib files through secure-this-host.sh,
+# so checked one file at a time ShellCheck sees them as unset or unused.)
 # preflight.sh - look at the server before changing anything.
 # Sets OS_*, CONN_*, LAN_*, UFW_*, TS_*, DOCKER_PRESENT and FOREIGN_FIREWALL.
 #

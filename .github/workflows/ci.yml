@@ -9,15 +9,31 @@ jobs:
     name: lint and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
       - name: Install ShellCheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+        run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+
       - name: ShellCheck
-        run: shellcheck -x -S warning secure-this-host.sh lib/*.sh tests/*.sh tests/stubs/fake
+        run: |
+          shellcheck --version
+          status=0
+          shellcheck -x -P SCRIPTDIR -S warning -f gcc \
+            secure-this-host.sh lib/*.sh tests/*.sh tests/stubs/fake >shellcheck.txt || status=$?
+          cat shellcheck.txt
+          # Turn each finding into an annotation, so it shows on the run's
+          # summary page without opening the log.
+          sed -E 's/^([^:]+):([0-9]+):([0-9]+): (error|warning|note): (.*)$/::\4 file=\1,line=\2,col=\3::\5/; s/^::note /::notice /' shellcheck.txt
+          exit "$status"
+
       - name: Unit tests
+        if: always()
         run: bash tests/unit.sh
+
       - name: Integration tests (fake system commands, no real changes)
+        if: always()
         run: bash tests/integration.sh

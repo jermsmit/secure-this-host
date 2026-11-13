@@ -1,4 +1,6 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034,SC2154
+# (Variables are shared between the lib files through secure-this-host.sh,
+# so checked one file at a time ShellCheck sees them as unset or unused.)
 # common.sh - shared helpers: logging, prompts, dry-run, files, backups,
 # config parsing and input validation.
 #
@@ -497,7 +499,7 @@ os_field() {   # os_field KEY - read a field from /etc/os-release without sourci
 
 require_root() {
   [[ ${STH_TEST:-0} == 1 ]] && return 0
-  (( EUID == 0 )) || die "Run this with sudo: sudo $0 $*"
+  (( EUID == 0 )) || die "Run this with sudo, e.g.: sudo sth"
 }
 
 # --------------------------------------------------------------------------

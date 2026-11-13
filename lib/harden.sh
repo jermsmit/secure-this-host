@@ -1,4 +1,6 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034,SC2154
+# (Variables are shared between the lib files through secure-this-host.sh,
+# so checked one file at a time ShellCheck sees them as unset or unused.)
 # harden.sh - extra hardening: kernel network settings, AppArmor check, audit
 # logging, fail2ban, unneeded services and Docker's firewall bypass.
 #

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
+# (SC2034: settings in this file are read by the lib files.)
 # secure-this-host (sth) - interactive zero-trust hardening for Ubuntu LTS.
 #
 #   sudo ./secure-this-host.sh            interactive setup (installs the `sth` command)
@@ -13,11 +15,26 @@ umask 022
 
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 STH_HOME=$(dirname "$SELF")
-for _m in common preflight users ssh firewall tailscale updates harden rollback verify; do
-  # shellcheck source=/dev/null
-  source "$STH_HOME/lib/$_m.sh"
-done
-unset _m
+# shellcheck source=lib/common.sh
+source "$STH_HOME/lib/common.sh"
+# shellcheck source=lib/preflight.sh
+source "$STH_HOME/lib/preflight.sh"
+# shellcheck source=lib/users.sh
+source "$STH_HOME/lib/users.sh"
+# shellcheck source=lib/ssh.sh
+source "$STH_HOME/lib/ssh.sh"
+# shellcheck source=lib/firewall.sh
+source "$STH_HOME/lib/firewall.sh"
+# shellcheck source=lib/tailscale.sh
+source "$STH_HOME/lib/tailscale.sh"
+# shellcheck source=lib/updates.sh
+source "$STH_HOME/lib/updates.sh"
+# shellcheck source=lib/harden.sh
+source "$STH_HOME/lib/harden.sh"
+# shellcheck source=lib/rollback.sh
+source "$STH_HOME/lib/rollback.sh"
+# shellcheck source=lib/verify.sh
+source "$STH_HOME/lib/verify.sh"
 
 # Defaults (a --config file or flags may set these first)
 : "${ROLLBACK_WINDOW:=5}"

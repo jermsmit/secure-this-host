@@ -21,7 +21,11 @@ done
 trap 'rm -rf "$SYS_BIN"' EXIT
 
 ok_()   { PASS=$((PASS + 1)); }
-bad_()  { FAIL=$((FAIL + 1)); printf '    FAIL [%s] %s\n' "$CURRENT" "$*"; }
+bad_()  {
+  FAIL=$((FAIL + 1)); printf '    FAIL [%s] %s\n' "$CURRENT" "$*"
+  # In GitHub Actions, each failure also shows as an annotation on the run page.
+  if [[ ${GITHUB_ACTIONS:-} == true ]]; then printf '::error title=%s::%s\n' "${CURRENT//[:,]/ }" "$*"; fi
+}
 check() { local d=$1; shift; if "$@"; then ok_; else bad_ "$d"; fi; }
 has_line() { grep -qF -- "$2" "$1" 2>/dev/null; }
 no_line()  { ! grep -qF -- "$2" "$1" 2>/dev/null; }

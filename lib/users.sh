@@ -1,4 +1,6 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034,SC2154
+# (Variables are shared between the lib files through secure-this-host.sh,
+# so checked one file at a time ShellCheck sees them as unset or unused.)
 # users.sh - the admin account and its SSH key.
 #
 # Part of secure-this-host. Copyright (c) 2026 jermsmit. MIT License.
