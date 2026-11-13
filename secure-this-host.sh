@@ -218,7 +218,7 @@ cmd_install() {
   updates_apply
   harden_apply
   if [[ $DRY_RUN == 0 ]]; then
-    mkdir -p -m 0700 "$(p "$STATE_DIR")"
+    make_dir 0700 "$(p "$STATE_DIR")"
     render_answers | write_file "$ANSWERS_FILE" 600
     state_set last_backup "$BACKUP_DIR"
     state_set version "$STH_VERSION"

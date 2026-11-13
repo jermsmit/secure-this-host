@@ -37,7 +37,7 @@ tailscale_questions() {
     printf '\n'
     [[ $key =~ ^tskey-[A-Za-z0-9-]+$ ]] || die "That doesn't look like a Tailscale auth key (tskey-...)."
     # Keep the key out of the process list and logs: hand it over in a file.
-    mkdir -p -m 0700 "$(p "$RUN_DIR")"
+    make_dir 0700 "$(p "$RUN_DIR")"
     TS_AUTHKEY_TMP=$(mktemp "$(p "$RUN_DIR")/authkey.XXXXXX")
     chmod 600 "$TS_AUTHKEY_TMP"
     printf '%s' "$key" >"$TS_AUTHKEY_TMP"

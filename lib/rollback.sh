@@ -30,7 +30,7 @@ arm_rollback() {
     run systemd-run --unit="$ROLLBACK_UNIT" --on-active="${minutes}m" "$INSTALL_BIN" rollback --auto
     return 0
   fi
-  mkdir -p -m 0700 "$RB_DIR"
+  make_dir 0700 "$RB_DIR"
   rm -f "$RB_CONFIRMED" "$RB_ROLLED"
   CONFIRM_CODE=$(random_code)
   [[ ${#CONFIRM_CODE} == 6 ]] || die "Could not generate a confirmation code."
@@ -122,7 +122,7 @@ wait_for_confirmation() {
 do_rollback() {
   local set=$1 was_active svc
   rb_files
-  mkdir -p -m 0700 "$RB_DIR"
+  make_dir 0700 "$RB_DIR"
   exec 9>"$RB_LOCK"
   flock -w 30 9 || die "Another secure-this-host process holds the lock."
   [[ -d $(p "$set") ]] || die "Backup set not found: $set"
@@ -148,7 +148,7 @@ do_rollback() {
   for svc in $(backup_get_meta "$set" disabled_services); do
     systemctl enable --now "$svc.service" >/dev/null 2>&1 || true
   done
-  [[ -d $(p /run/sshd) ]] || mkdir -p -m 0755 "$(p /run/sshd)"
+  [[ -d $(p /run/sshd) ]] || make_dir 0755 "$(p /run/sshd)"
   if sshd -t >/dev/null 2>&1; then
     systemctl try-reload-or-restart ssh.service >/dev/null 2>&1 || true
   else

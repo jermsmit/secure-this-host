@@ -74,6 +74,10 @@ run() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# make_dir MODE DIR - create DIR (and parents) and set MODE on DIR itself.
+# (mkdir -p -m only applies the mode to the last directory it creates.)
+make_dir() { mkdir -p "$2" && chmod "$1" "$2"; }
+
 # --------------------------------------------------------------------------
 # Prompts. Each prompt stores its answer in a named variable. If the variable
 # is already set (from --config) the prompt is skipped. With --yes, the

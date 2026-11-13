@@ -85,6 +85,8 @@ printf 'not a line\n' >"$T/bad2.conf"
 # prompts: config value wins, --yes takes default, invalid config value dies
 ( FOO=cloud; ask_choice FOO "Type?" onprem "cloud|c" "onprem|o" >/dev/null; [[ $FOO == cloud ]] ) && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: ask_choice config"; }
 ( ASSUME_YES=1; unset BAR; ask_yn BAR "Q?" no >/dev/null; [[ $BAR == no ]] ) && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: ask_yn --yes"; }
+# BAZ is read by name inside ask_yn, which ShellCheck can't see.
+# shellcheck disable=SC2034
 ( BAZ=maybe; ask_yn BAZ "Q?" no ) >/dev/null 2>&1 && { FAIL=$((FAIL+1)); echo "FAIL: ask_yn bad config"; } || PASS=$((PASS+1))
 ( unset Q1; ask Q1 "Port?" "" valid_port_list <<<$'22\n443' >/dev/null 2>&1; [[ $Q1 == 443 ]] ) && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: ask re-prompts on invalid"; }
 ( unset Q2; ask_choice Q2 "Pick" b "a|x" "b|y" <<<'1' >/dev/null; [[ $Q2 == a ]] ) && PASS=$((PASS+1)) || { FAIL=$((FAIL+1)); echo "FAIL: ask_choice by number"; }

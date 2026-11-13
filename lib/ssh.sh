@@ -63,7 +63,7 @@ EOF
 sshd_test() {
   # sshd -t fails if the privilege separation directory is missing, which is
   # normal on Ubuntu 24.04+ while ssh.socket hasn't started sshd yet.
-  [[ -d $(p /run/sshd) ]] || mkdir -p -m 0755 "$(p /run/sshd)"
+  [[ -d $(p /run/sshd) ]] || make_dir 0755 "$(p /run/sshd)"
   sshd -t 2>&1
 }
 
